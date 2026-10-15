@@ -216,3 +216,6 @@ train_log/*
 !train_log/e2h_latent
 wandb/*
 .claude/
+
+# Local agent instructions
+AGENTS.md
