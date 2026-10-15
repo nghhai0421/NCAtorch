@@ -219,3 +219,4 @@ wandb/*
 
 # Local agent instructions
 AGENTS.md
+anca_arc_hooks_implementation_guide.md
