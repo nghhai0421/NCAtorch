@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import numpy as np
+
 from ..config import settings
 
 
@@ -49,3 +51,26 @@ def create_color_balance(config, train):
         white_ratio=balance.WHITE_RATIO,
     )
     return dataset, 0, size, size
+
+
+def create_arc(config, train):
+    """Load demonstration or query pairs, applying the configured task selection."""
+    from .arc import ArcDataset
+
+    arc = settings(config).ARC
+    split = "train" if train else "test"
+    filename = arc.TRAIN_FILE if train else arc.TEST_FILE
+    dataset = ArcDataset(dataroot(config) / filename, split, config.MODEL.CHANNEL_N)
+
+    if train and arc.HOLDOUT_TASK_IDS:
+        if not np.isin(arc.HOLDOUT_TASK_IDS, dataset.task_ids).all():
+            raise ValueError("Some held-out ARC task IDs are absent from the demonstration archive.")
+        dataset.rows = np.flatnonzero(~np.isin(dataset.task_ids, arc.HOLDOUT_TASK_IDS))
+    elif not train and arc.EVAL_TASK_IDS:
+        if not np.isin(arc.EVAL_TASK_IDS, dataset.task_ids).all():
+            raise ValueError("Some ARC evaluation task IDs are absent from the query archive.")
+        dataset.rows = np.flatnonzero(np.isin(dataset.task_ids, arc.EVAL_TASK_IDS))
+
+    if len(dataset) == 0:
+        raise ValueError("The ARC task selection contains no pairs.")
+    return dataset, 13, dataset.grid_size, dataset.grid_size

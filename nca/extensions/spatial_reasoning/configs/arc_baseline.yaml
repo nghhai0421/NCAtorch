@@ -1,0 +1,82 @@
+# ARC aNCA: ten color logits, categorical size readout, and fixed coordinates.
+# Three DCNv2 heads evolve the complete 30x30 canvas; sizes use row/column means.
+
+SEED: 42
+DEVICE: "cuda"
+
+LOGGING:
+  WANDB: false
+  PROJECT_NAME: "spatial_reasoning_arc"
+  TRAIN_NAME: "arc_anca_softmax"
+  LOG_INTERVAL: 100
+  SAVE_INTERVAL: 1000
+  INTERMEDIATE_LOGGING_STEPS: [6, 12]
+
+MODEL:
+  ARCHITECTURE: "residual"
+  NAME: "MLP"
+  HIDDEN_CHANNELS: [128]
+  CHANNEL_N: 44              # Ten colors, two size-score channels, 32 hidden channels
+  USE_POSITIONAL_EMBEDDINGS: false
+  FIRE_RATE: 1.0             # Synchronous updates for the initial baseline
+  LIVING_MASK: false
+  CLAMP_OUTPUT: false
+  FINAL_ACTIVATION: false
+  NOISE_INJECTION: 0.0
+  PERCEPTIONS:
+    - {MODE: "anca_deform", KERNEL_SIZE: 3, OUT_CHANNEL: 128}
+    - {MODE: "anca_deform", KERNEL_SIZE: 3, OUT_CHANNEL: 128}
+    - {MODE: "anca_deform", KERNEL_SIZE: 3, OUT_CHANNEL: 128}
+
+TRAINING:
+  TRAINER_TYPE: "spatial_reasoning"
+  EVOLVE_MODE: "base"
+  BATCH_SIZE: 16
+  STEPS: 1000
+  LEARNING_RATE: 0.001       # AdamW
+  LR_SCHEDULE_MODE: "wsd"    # Warmup / stable / decay = 10% / 80% / 10%
+  WARMUP_STEPS: 100
+  WSD_DECAY_RATIO: 0.1
+  WSD_MIN_LR_RATIO: 0.0
+  GRADIENT_CLIPPING_NORM: 1.0
+  ITER_N_MIN: 18
+  ITER_N_MAX: 24
+  MIXED_PRECISION: true
+  GRADIENT_CHECKPOINTING: false
+
+DATASET:
+  NAME: "arc_pairs"
+  DATAROOT: "datasets/arc_generated"
+  TARGET_SIZE: 30
+  TARGET_PADDING: 0
+  NUM_WORKERS: 0             # Keep the large decoded NPZ arrays in one process
+  DROP_LAST_BATCH: true
+
+PATTERN_POOL:
+  ENABLED: false
+LATENT_TRAINING:
+  ENABLED: false
+CFG:
+  ENABLED: false
+ADVERSARIAL:
+  ENABLED: false
+TORCH_COMPILE:
+  ENABLED: false
+
+EXTENSIONS:
+  SPATIAL_REASONING:
+    LOSS: "arc_supervised"
+    WEIGHT_DECAY: 0.0001
+    CHECK_BACKPROP: false     # Enable for a smoke run to verify gradients and weight updates
+    ARC:
+      TRAIN_FILE: "synthetic_arc_train.npz"
+      TEST_FILE: "synthetic_arc_test.npz"
+      TEST_AFTER_TRAIN: true  # Score every test pair after saving the final model
+      TEST_STEPS: 24
+      TEST_BATCH_SIZE: 16
+      TEST_IMAGE_LIMIT: 32    # Export every prediction; render only the first 32 pairs
+      HOLDOUT_TASK_IDS: []    # Optional unseen-task experiment: exclude whole tasks before pretraining
+      EVAL_TASK_IDS: []       # Task subset for --mode adapt; ignored by plain full-test prediction
+      SIZE_LOSS_WEIGHT: 1.0
+      ADAPT_STEPS: 20
+      ADAPT_LR: 0.001

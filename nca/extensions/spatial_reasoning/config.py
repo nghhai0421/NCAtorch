@@ -11,7 +11,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Losses of the spatial_reasoning trainer and the dataset whose targets and conditions they expect.
-LOSS_DATASETS = {"sudoku_constraint": "sudoku", "maze_path": "maze", "color_balance": "color_balance"}
+LOSS_DATASETS = {
+    "sudoku_constraint": "sudoku", "maze_path": "maze",
+    "color_balance": "color_balance", "arc_supervised": "arc_pairs",
+}
 DEFORMABLE_MODES = ("anca_deform", "anca_deform_v1")
 
 
@@ -70,6 +73,30 @@ class ColorBalanceSettings(Section):
     SATURATION_WEIGHT: float = Field(default=0.01, ge=0)
 
 
+class ArcSettings(Section):
+    """Padded ARC archives, full-test prediction, and task-based adaptation.
+
+    HOLDOUT_TASK_IDS: Generated tasks excluded from pooled pretraining; include
+        every related task from held-out source families.
+    EVAL_TASK_IDS: Held-out tasks selected for adaptation. Plain test export
+        scores every query pair, without task filtering or weight updates.
+    TEST_IMAGE_LIMIT: Number of pairs rendered in comparison PNGs; predictions
+        and metrics always cover the complete test archive.
+    """
+
+    TRAIN_FILE: str = "synthetic_arc_train.npz"
+    TEST_FILE: str = "synthetic_arc_test.npz"
+    TEST_AFTER_TRAIN: bool = False
+    TEST_STEPS: int = Field(default=24, gt=0)
+    TEST_BATCH_SIZE: int = Field(default=16, gt=0)
+    TEST_IMAGE_LIMIT: int = Field(default=32, ge=0)
+    HOLDOUT_TASK_IDS: list[str] = Field(default_factory=list)
+    EVAL_TASK_IDS: list[str] = Field(default_factory=list)
+    SIZE_LOSS_WEIGHT: float = Field(default=1.0, gt=0)
+    ADAPT_STEPS: int = Field(default=20, ge=0)
+    ADAPT_LR: float = Field(default=1e-3, gt=0)
+
+
 class CodecSettings(Section):
     """MNIST Sudoku codec training (``scripts/train_codec.py``).
 
@@ -113,14 +140,18 @@ class SpatialReasoningConfig(Section):
         ``TRAINING.LOSS_FN`` because these losses also need the condition.
     WEIGHT_DECAY: AdamW weight decay of the ``spatial_reasoning`` trainer
         (0 makes AdamW identical to Adam).
+    CHECK_BACKPROP: Opt-in smoke check for finite, nonzero gradients and
+        actual parameter updates at positive learning rates.
     CODEC: Set only in codec configs.
     """
 
-    LOSS: Literal["sudoku_constraint", "maze_path", "color_balance"] | None = None
+    LOSS: Literal["sudoku_constraint", "maze_path", "color_balance", "arc_supervised"] | None = None
     WEIGHT_DECAY: float = Field(default=0.0, ge=0)
+    CHECK_BACKPROP: bool = False
     SUDOKU: SudokuSettings = Field(default_factory=SudokuSettings)
     MAZE: MazeSettings = Field(default_factory=MazeSettings)
     COLOR_BALANCE: ColorBalanceSettings = Field(default_factory=ColorBalanceSettings)
+    ARC: ArcSettings | None = None
     CODEC: CodecSettings | None = None
 
 
@@ -158,3 +189,26 @@ def validate_spatial_reasoning_config(config):
         raise ValueError("Sudoku requires MODEL.CHANNEL_N >= 9 (one channel per digit).")
     if dataset == "color_balance" and section.COLOR_BALANCE.BIAS_MIN > section.COLOR_BALANCE.BIAS_MAX:
         raise ValueError("COLOR_BALANCE.BIAS_MIN cannot exceed BIAS_MAX.")
+    if dataset == "arc_pairs":
+        arc, model = section.ARC, config.MODEL
+        if arc is None:
+            raise ValueError("ARC requires EXTENSIONS.SPATIAL_REASONING.ARC.")
+        if model.ARCHITECTURE != "residual":
+            raise ValueError("The ARC baseline requires MODEL.ARCHITECTURE=residual.")
+        if model.CHANNEL_N < 12 or model.CHANNEL_OUT != model.CHANNEL_N:
+            raise ValueError("ARC requires at least 12 mutable channels and matching CHANNEL_OUT.")
+        if config.DATASET.TARGET_SIZE != 30 or config.DATASET.TARGET_PADDING != 0:
+            raise ValueError("ARC requires TARGET_SIZE=30 and TARGET_PADDING=0.")
+        if any((model.USE_POSITIONAL_EMBEDDINGS, model.LIVING_MASK, model.CLAMP_OUTPUT,
+                model.FINAL_ACTIVATION, config.PATTERN_POOL.ENABLED)):
+            raise ValueError("ARC uses fixed condition coordinates, fresh states and unconstrained logits.")
+        if model.NOISE_INJECTION != 0:
+            raise ValueError("The ARC baseline requires NOISE_INJECTION=0.")
+        if len(model.PERCEPTIONS) != 3 or any(
+            p.MODE != "anca_deform" or p.KERNEL_SIZE != 3 for p in model.PERCEPTIONS
+        ):
+            raise ValueError("ARC requires three anca_deform branches with KERNEL_SIZE=3.")
+        if any(not task_id.strip() for task_id in arc.HOLDOUT_TASK_IDS + arc.EVAL_TASK_IDS):
+            raise ValueError("ARC task selections require nonempty task IDs.")
+        if not set(arc.EVAL_TASK_IDS).issubset(arc.HOLDOUT_TASK_IDS):
+            raise ValueError("ARC EVAL_TASK_IDS must be included in HOLDOUT_TASK_IDS.")

@@ -206,6 +206,16 @@ def main():
             # sleep for 5 seconds before retrying
             time.sleep(5)
         else:
+            # Predict Test
+            if config.DATASET.NAME == "arc_pairs":
+                from nca.extensions.spatial_reasoning.config import settings
+                from nca.extensions.spatial_reasoning.evaluation import evaluate_arc_test
+
+                if settings(config).ARC.TEST_AFTER_TRAIN:
+                    evaluate_arc_test(
+                        ca_model, config, os.path.join(trainer.output_folder, "test"),
+                        checkpoint=os.path.join(trainer.output_folder, "ca_final.pt"),
+                    )
             print(f"[Attempt {attempt + 1}] Training succeeded! Exiting script.")
             sys.exit(0)
 

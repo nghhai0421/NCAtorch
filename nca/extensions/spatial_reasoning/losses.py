@@ -1,4 +1,4 @@
-"""Constraint-based training objectives of the spatial reasoning tasks.
+"""Supervised and constraint-based objectives of the spatial reasoning tasks.
 
 Each loss returns a dict with a differentiable ``total_loss`` plus its terms.
 """
@@ -6,6 +6,63 @@ Each loss returns a dict with a differentiable ``total_loss`` plus its terms.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from .arc_readout import size_logits
+
+
+class ArcLoss(nn.Module):
+    """Masked color cross-entropy and categorical height/width cross-entropy.
+
+    Predictions are the full mutable state ``(B, C, 30, 30)``. Targets contain
+    ten one-hot color channels and one output-valid mask. Color loss is
+    normalized by each example's target area before averaging the batch.
+    """
+
+    def __init__(self, size_weight=1.0):
+        super().__init__()
+        self.size_weight = size_weight
+
+    def forward(self, predictions, targets, condition=None):
+        color_logits = predictions[:, :10].float()
+        labels = targets[:, :10].argmax(dim=1).long()
+        mask = targets[:, 10].float()
+        target_area = mask.sum(dim=(1, 2))
+
+        # Color Loss
+        pixel_loss = F.cross_entropy(color_logits, labels, reduction="none")
+        color_loss = ((pixel_loss * mask).sum(dim=(1, 2)) / target_area).mean()
+
+        # Size Loss
+        heights = mask.bool().any(dim=2).sum(dim=1).long()
+        widths = mask.bool().any(dim=1).sum(dim=1).long()
+        height_logits, width_logits = size_logits(predictions)
+        height_loss = F.cross_entropy(height_logits, heights - 1)
+        width_loss = F.cross_entropy(width_logits, widths - 1)
+        total_loss = color_loss + self.size_weight * (height_loss + width_loss)
+
+        # Metrics
+        with torch.no_grad():
+            height_correct = height_logits.argmax(dim=1) + 1 == heights
+            width_correct = width_logits.argmax(dim=1) + 1 == widths
+            size_correct = height_correct & width_correct
+            color_correct = color_logits.argmax(dim=1) == labels
+            color_accuracy = (
+                (color_correct * mask).sum(dim=(1, 2)) / target_area
+            ).mean()
+            all_colors_correct = (color_correct | ~mask.bool()).flatten(1).all(dim=1)
+            exact_accuracy = (size_correct & all_colors_correct).float().mean()
+
+        return {
+            "total_loss": total_loss,
+            "color_loss": color_loss,
+            "height_loss": height_loss,
+            "width_loss": width_loss,
+            "height_accuracy": height_correct.float().mean(),
+            "width_accuracy": width_correct.float().mean(),
+            "size_accuracy": size_correct.float().mean(),
+            "color_accuracy": color_accuracy,
+            "exact_accuracy": exact_accuracy,
+        }
 
 
 class SudokuConstraintLoss(nn.Module):
@@ -179,6 +236,8 @@ def create_loss(config):
     from .config import settings
 
     section = settings(config)
+    if section.LOSS == "arc_supervised":
+        return ArcLoss(size_weight=section.ARC.SIZE_LOSS_WEIGHT)
     if section.LOSS == "sudoku_constraint":
         s = section.SUDOKU
         return SudokuConstraintLoss(

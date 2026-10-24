@@ -23,8 +23,9 @@ def register_trainers(registry, required_trainers):
 
 
 def register_datasets(registry):
-    from .data.factories import create_color_balance, create_maze, create_sudoku
+    from .data.factories import create_arc, create_color_balance, create_maze, create_sudoku
 
     registry["sudoku"] = create_sudoku
     registry["maze"] = create_maze
     registry["color_balance"] = create_color_balance
+    registry["arc_pairs"] = create_arc

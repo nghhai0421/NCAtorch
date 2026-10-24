@@ -1,0 +1,54 @@
+{
+  "cleaning_and_overlap_decisions": {
+    "arc_train": "ARC-2 primary; append only ARC-1 train task content absent from ARC-2.",
+    "arc_validate": "Remove 070dd51e; remove ARC-1 validation IDs in ARC_Train; ARC-2 validation primary; deduplicate by full task content.",
+    "excluded": "Raw data, BARC_cleaned, BARC programs, temporary SQLite indexes, audits, and checkpoints.",
+    "googleds": "Drop unlinked 40853293; remove exact official ARC train pairs; remove repeated generated pairs globally.",
+    "synthetic": "Exact pair overlap with ARC_Validate is prohibited; metadata is provenance-only."
+  },
+  "created_at_utc": "2026-10-14T23:34:10.484711+00:00",
+  "datasets": {
+    "ARC_Train": {
+      "path": "data/arc_train.jsonl",
+      "record_count": 1008,
+      "record_type": "official_arc_task",
+      "source_composition": {
+        "arc1_train": 8,
+        "arc2_train": 1000
+      }
+    },
+    "ARC_Validate": {
+      "path": "data/arc_validate.jsonl",
+      "record_count": 138,
+      "record_type": "official_arc_task",
+      "role": "protected_evaluation_only",
+      "source_composition": {
+        "arc1_validation": 18,
+        "arc2_validation": 120
+      }
+    },
+    "Google_cleaned": {
+      "path": "data/google_cleaned.jsonl",
+      "record_count": 99532,
+      "record_type": "generated_pair",
+      "source_composition": {
+        "dropped_unlinked_pairs": 262,
+        "raw_pairs": 100000,
+        "removed_exact_arc_train_pair_copies": 192,
+        "removed_repeated_googleds_pairs": 14,
+        "source_files": 400
+      }
+    },
+    "Synthetic_ARC_Train": {
+      "path": "data/synthetic_arc_train.jsonl",
+      "record_count": 199899,
+      "record_type": "synthetic_arc_style_task",
+      "source_composition": {
+        "barc_aux": 187226,
+        "google_aux": 12673
+      }
+    }
+  },
+  "format": "jsonl",
+  "package": "arc-synthetic-training-package-v1"
+}
